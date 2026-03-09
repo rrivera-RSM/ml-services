@@ -1,0 +1,27 @@
+ruleset_id: ruleset_2026_01
+effective_from: 2026-01-01
+
+run:
+  fiscal_year: 2025
+  today: null # null = use "today" from the system
+
+filters: 
+  categoria_col: "Categoria Profesional"
+  oficina_col: "OFICINA"
+  activo_col: "left_at"
+  fiscal_col: "Año Fiscal"
+  allowed_categorias: ["Junior", "Senior", "Gerente", "Estructura"]
+  rejected_oficinas: ["Sevilla"]
+
+features:
+  id_col: "id"
+  cat_cols: ["SOCIEDAD", "OFICINA", "Categoria Profesional"]
+  
+  imputation:
+    enc_target_cols: ["ENC_Evaluación del desempeño", "ENC_Salario"]
+    sal_target_cols: ["SALARIO NUEVO"]
+
+  scaling:
+    enabled: True
+    cols_scale: ["ENC_Salario","ENC_Evaluación del desempeño","Edad","Antiguedad",
+      "Bonus/Variable","SALARIO NUEVO","Incremento Salarial"]
