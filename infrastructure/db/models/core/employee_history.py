@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from app.infrastructure.db.base import Base
+from infrastructure.db.base import Base
 
 
 class EmployeeHistory(Base):
