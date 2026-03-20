@@ -49,7 +49,7 @@ class SimulationService:
         as_of: Optional[datetime] = None,
     ) -> Optional[dict[str, Any]]:
         """
-        Devuelve un diccionario con los datos del empleado necesarios para la simulación.
+        Devuelve un diccionario con los datos para la simulación.
         """
         return await self.repo.get_employee_snapshot_row(
             employee_id=employee_id,

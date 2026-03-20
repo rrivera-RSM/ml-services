@@ -5,7 +5,7 @@ from joblib import load
 from pathlib import Path
 from typing import Iterable
 import yaml
-
+import ast
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -73,18 +73,14 @@ class FeatureEngineer:
             X[self.cat_col] == "Gerente", 1, 0
         )
         # society mapping
-        X[self.society_col] = (
-            X[self.society_col]
-            .str.upper()
-            .replace(
-                {
-                    "RSM SPAIN SERVICIOS ADMINISTRATIVOS, SL": "servicios",
-                    "RSM SPAIN AUDITORES, SLP": "auditoria",
-                    "RSM SPAIN ASESORES LEGALES Y TRIBUTARIOS, SLP": "tax_legal",
-                    "RSM SPAIN CONSULTORES, SL": "consulting",
-                    "RSM SPAIN CORPORATE FINANCE, SL": "corporate",
-                }
-            )
+        X[self.society_col] = X[self.society_col].replace(
+            {
+                "Rsm Spain Servicios Administrativos, Sl": "servicios",
+                "Rsm Spain Auditores, Slp": "auditoria",
+                "Rsm Spain Asesores Legales Y Tributarios, Slp": "tax_legal",
+                "Rsm Spain Consultores, Sl": "consulting",
+                "Rsm Spain Corporate Finance, Sl": "corporate",
+            }
         )
         return X
 
@@ -93,7 +89,10 @@ class ImputerMeanLevel(BaseEstimator, TransformerMixin):
     def __init__(self, imputer, target_cols, levels):
         self.imputer = imputer
         self.target_cols = target_cols
-        self.levels = levels
+        self.levels = [
+            ast.literal_eval(level) if isinstance(level, str) else level
+            for level in levels
+        ]
 
     def fit(self, X, y=None):
         return self
@@ -110,10 +109,10 @@ class ImputerMeanLevel(BaseEstimator, TransformerMixin):
                 for cols in self.levels:
                     med = self.imputer[key][tuple(cols)]
                     med = med.rename(columns={key: f"{key}_median"})
-                    df = df.merge(med, on=cols, how="left")
-                    df[key] = df[key].fillna(df[f"{key}_median"])
-                    df = df.drop(columns=[f"{key}_median"])
-                df[key] = df[key].fillna(self.imputer[key]["global"])
+                    X = X.merge(med, on=cols, how="left")
+                    X[key] = X[key].fillna(X[f"{key}_median"])
+                    X = X.drop(columns=[f"{key}_median"])
+                X[key] = X[key].fillna(self.imputer[key]["global"])
         return X
 
 
