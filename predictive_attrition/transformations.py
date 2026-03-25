@@ -70,7 +70,7 @@ class FeatureEngineer:
             X[self.cat_col] == "Estructura", 1, 0
         )
         X[f"{self.cat_col}_manager"] = np.where(
-            X[self.cat_col] == "Gerente", 1, 0
+            X[self.cat_col].isin(["Manager", "Director"]), 1, 0
         )
         # society mapping
         X[self.society_col] = X[self.society_col].replace(
