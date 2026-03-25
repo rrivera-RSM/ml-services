@@ -14,4 +14,4 @@ scaler = PATH_TRANSFORMACIONES / 'scaler.pkl'
 
 PATH_MODEL = PATH_ROOT / 'models'
 experiment_name = 'xgboost_2'
-run_id = "e8f52bb8785441efaac60b32e1c2aab7"
+run_id = "7be5c75d1ab742dd9638f52615e14b70"
