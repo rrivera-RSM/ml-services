@@ -1,21 +1,20 @@
 from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 from joblib import load
 from pathlib import Path
 from typing import Iterable
 import yaml
-
-from sklearn.base import BaseEstimator, TransformerMixin
+import ast
 from sklearn.pipeline import Pipeline
+from sklearn.base import BaseEstimator, TransformerMixin
 
-from .config import AppConfig
+from predictive_attrition.config import AppConfig
 
 PathLike = str | Path
 
 
-class EncuestaBlocks(BaseEstimator, TransformerMixin):
+class SurveysBlocks(BaseEstimator, TransformerMixin):
     def __init__(self, map_encuesta_bloque: dict):
         self.map_ = dict(map_encuesta_bloque)
 
@@ -29,100 +28,103 @@ class EncuestaBlocks(BaseEstimator, TransformerMixin):
             return X
 
         bloques = (
-            X[preguntas].rename(columns=self.map_).apply(pd.to_numeric, errors="coerce")
+            X[preguntas]
+            .rename(columns=self.map_)
+            .apply(pd.to_numeric, errors="coerce")
         )
         bloques_mean = bloques.T.groupby(level=0).mean().T
         X = X.drop(columns=preguntas)
         return pd.concat([X, bloques_mean], axis=1)
 
 
-class FeatureEngineer(BaseEstimator, TransformerMixin):
-    def __init__(self, umbral_gastos: float, dieta_col: str = "DIETA"):
-        self.umbral = umbral_gastos
-        self.dieta_col = dieta_col
+class FeatureEngineer:
+    def __init__(self, expenses_threshold):
+        self.expenses_threshold = expenses_threshold
+        self.salary_inc_col = "salary_increase"
+        self.exp_col = "food"
+        self.positive_imp_col = "bol_positive_impact"
+        self.cat_col = "category"
+        self.society_col = "society_name"
 
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
         X = X.copy()
-        # Incremento Salarial
-        X["Incremento Salarial"] = pd.to_numeric(
-            X.get("Incremento Salarial", 0), errors="coerce"
+        # salary increase
+        X[self.salary_inc_col] = pd.to_numeric(
+            X.get(self.salary_inc_col, 0), errors="coerce"
         ).fillna(0)
-        # Impacto positivo categórica
-        imp = pd.to_numeric(X.get("Impacto positivo"), errors="coerce").fillna(0)
-        X["Impacto positivo categorica"] = (imp > 0).astype(int)
-        # Gastos (0/1/2)
-        dieta = pd.to_numeric(X.get(self.dieta_col), errors="coerce").fillna(0)
-        X["GASTOS"] = np.select(
-            [dieta == 0, dieta <= self.umbral, dieta > self.umbral],
-            [0, 1, 2],
-            default=0,
-        ).astype(int)
-        # Categoria Profesional: Estructura, Gerente
-        cat = X.get("Categoria Profesional")
-        X["CATEGORIA_Estructura"] = (
-            cat.fillna("").eq("Estructura").astype(int) if cat is not None else 0
+        X[self.salary_inc_col] = np.where(
+            X[self.salary_inc_col] < 0, 0, X[self.salary_inc_col]
         )
-        X["CATEGORIA_Gerente"] = (
-            cat.fillna("").isin(["Gerente", "Manager"]).astype(int)
-            if cat is not None
-            else 0
+        # expenses
+        X[self.exp_col] = X[self.exp_col].clip(
+            upper=self.expenses_threshold[self.exp_col]
+        )
+        X[self.exp_col] = np.log1p(X[self.exp_col])
+        # bool cols
+        X[self.positive_imp_col] = np.where(X[self.positive_imp_col] > 0, 1, 0)
+        X[self.positive_imp_col] = X[self.positive_imp_col].astype("bool")
+        X[f"{self.cat_col}_estructura"] = np.where(
+            X[self.cat_col] == "Estructura", 1, 0
+        )
+        X[f"{self.cat_col}_manager"] = np.where(
+            X[self.cat_col] == "Gerente", 1, 0
+        )
+        # society mapping
+        X[self.society_col] = X[self.society_col].replace(
+            {
+                "Rsm Spain Servicios Administrativos, Sl": "servicios",
+                "Rsm Spain Auditores, Slp": "auditoria",
+                "Rsm Spain Asesores Legales Y Tributarios, Slp": "tax_legal",
+                "Rsm Spain Consultores, Sl": "consulting",
+                "Rsm Spain Corporate Finance, Sl": "corporate",
+            }
         )
         return X
 
 
-class KNNImputeWithExpectedCols(BaseEstimator, TransformerMixin):
-    """
-    Applies OHE to cat_cols, aligns to expected_cols, and applies a pre-trained imputer.
-    Returns the original DataFrame with the target_cols imputed (overwritten).
-    """
-
-    def __init__(
-        self,
-        imputer,
-        expected_cols,
-        target_cols,
-        cat_cols=("SOCIEDAD", "OFICINA", "Categoria Profesional"),
-    ):
+class ImputerMeanLevel(BaseEstimator, TransformerMixin):
+    def __init__(self, imputer, target_cols, levels):
         self.imputer = imputer
-        self.expected_cols = list(expected_cols)
-        self.target_cols = list(target_cols)
-        self.cat_cols = tuple(cat_cols)
+        self.target_cols = target_cols
+        self.levels = [
+            ast.literal_eval(level) if isinstance(level, str) else level
+            for level in levels
+        ]
 
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
         X = X.copy()
-        # If the target contains no missing values, no action is taken
+        # If target contains no missing values, no action is taken
         if all(c in X.columns for c in self.target_cols):
             if X[self.target_cols].isnull().sum().sum() == 0:
                 return X
-        # ONE-HOT + align
-        X_oh = pd.get_dummies(
-            X, columns=[c for c in self.cat_cols if c in X.columns], drop_first=False
-        )
-        M = X_oh.reindex(columns=self.expected_cols, fill_value=0)
-        M = M.apply(pd.to_numeric, errors="coerce")
-
-        M_imp = pd.DataFrame(
-            self.imputer.transform(M), columns=self.expected_cols, index=X.index
-        )
-        for c in self.target_cols:
-            if c in M_imp.columns:
-                X[c] = M_imp[c]
+        # impute
+        for key in self.imputer.keys():
+            if key in self.target_cols:
+                for cols in self.levels:
+                    med = self.imputer[key][tuple(cols)]
+                    med = med.rename(columns={key: f"{key}_median"})
+                    X = X.merge(med, on=cols, how="left")
+                    X[key] = X[key].fillna(X[f"{key}_median"])
+                    X = X.drop(columns=[f"{key}_median"])
+                X[key] = X[key].fillna(self.imputer[key]["global"])
         return X
 
 
-class MinMaxScaleInplace(BaseEstimator, TransformerMixin):
+class MinMaxScale(BaseEstimator, TransformerMixin):
     """Applies a pre-trained scaler to the available cols_scale, ensuring alignment with the scaler's expected_cols."""
 
     def __init__(self, scaler, cols_scale, expected_cols=None):
         self.scaler = scaler
         self.cols_scale = list(cols_scale)
-        self.expected_cols = list(expected_cols) if expected_cols is not None else None
+        self.expected_cols = (
+            list(expected_cols) if expected_cols is not None else None
+        )
 
     def fit(self, X, y=None):
         return self
@@ -148,7 +150,7 @@ class MinMaxScaleInplace(BaseEstimator, TransformerMixin):
         scaled = pd.DataFrame(
             self.scaler.transform(block), columns=expected, index=X.index
         )
-        X.loc[:, cols_present] = scaled[cols_present]
+        X.loc[:, cols_present] = scaled[cols_present].astype(float)
         return X
 
 
@@ -178,42 +180,34 @@ class FinalAlign(BaseEstimator, TransformerMixin):
         return X.reindex(columns=cols, fill_value=self.fill_value)
 
 
-def cargar_encuesta_bloques(ruta: PathLike) -> dict[str, str]:
-    with open(ruta, "r", encoding="utf-8") as f:
+def load_survey_blocs(path: PathLike) -> dict[str, str]:
+    with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
-        raise ValueError("Formato no correcto")
+        raise ValueError("Format not valid")
     return {str(k): str(v) for k, v in data.items()}
 
 
 def build_preprocessor(
     cfg: AppConfig,
     *,
-    umbral_gastos: PathLike,
-    encuesta_map_path: PathLike,
-    imputer_enc_path: PathLike,
-    imputer_sal_path: PathLike,
+    expenses_out_thrs: PathLike,
+    b_survey_map_path: PathLike,
+    b_survey_imputer_path: PathLike,
+    salary_imputer_path: PathLike,
     scaler_path: PathLike | None = None,
     model_expected_cols: list[str] | None = None,
 ) -> Pipeline:
     """
-    Builder: uses cfg.features to define:
-    - cat_cols
-    - imputation target columns
-    - scaling configuration and cols_scale
-    - id_col
-    and takes the paths to artifacts as input parameters.
+    Builder: uses cfg.features
+    and takes the paths to artifacts as input parameter.
     """
-    # Load artifacts
-    umbral = load(umbral_gastos)
-    enc = load(imputer_enc_path)
-    sal = load(imputer_sal_path)
-    map_encuesta_bloque = cargar_encuesta_bloques(encuesta_map_path)
 
-    imputer_enc = enc["imputer"]
-    expected_cols_enc = enc["expected_cols"]
-    imputer_sal = sal["imputer"]
-    expected_cols_sal = sal["expected_cols"]
+    # Load artifacts
+    expenses_outliers_threshold = load(expenses_out_thrs)
+    b_survey_imputer = load(b_survey_imputer_path)
+    salary_imputer = load(salary_imputer_path)
+    b_survey_map = load_survey_blocs(b_survey_map_path)
 
     scaler = load(scaler_path) if scaler_path else None
     cols_fit_scale = (
@@ -222,30 +216,31 @@ def build_preprocessor(
         else None
     )
 
-    cat_cols = cfg.features.cat_cols
+    # column names
     id_col = cfg.features.id_col
-    enc_target_cols = list(cfg.features.imputation.enc_target_cols)
-    sal_target_cols = list(cfg.features.imputation.sal_target_cols)
+    survey_target_cols = list(cfg.features.imputation.survey_target_cols)
+    b_survey_levels = list(cfg.features.imputation.survey_imp_levels)
+    salary_target_cols = list(cfg.features.imputation.salary_target_cols)
+    salary_levels = list(cfg.features.imputation.salary_imp_levels)
 
+    # Pipeline
     steps: list[tuple[str, TransformerMixin]] = [
-        ("encuestas", EncuestaBlocks(map_encuesta_bloque)),
-        ("feat", FeatureEngineer(umbral_gastos=umbral)),
+        ("feature", FeatureEngineer(expenses_outliers_threshold)),
+        ("surveys", SurveysBlocks(b_survey_map)),
         (
-            "imp_enc",
-            KNNImputeWithExpectedCols(
-                imputer=imputer_enc,
-                expected_cols=expected_cols_enc,
-                target_cols=enc_target_cols,
-                cat_cols=cat_cols,
+            "survey_imp",
+            ImputerMeanLevel(
+                imputer=b_survey_imputer,
+                target_cols=survey_target_cols,
+                levels=b_survey_levels,
             ),
         ),
         (
-            "imp_sal",
-            KNNImputeWithExpectedCols(
-                imputer=imputer_sal,
-                expected_cols=expected_cols_sal,
-                target_cols=sal_target_cols,
-                cat_cols=cat_cols,
+            "salary_imp",
+            ImputerMeanLevel(
+                imputer=salary_imputer,
+                target_cols=salary_target_cols,
+                levels=salary_levels,
             ),
         ),
     ]
@@ -253,14 +248,13 @@ def build_preprocessor(
         steps.append(
             (
                 "scale",
-                MinMaxScaleInplace(
+                MinMaxScale(
                     scaler=scaler,
-                    cols_scale=list(cfg.features.scaling.cols_scale),
+                    cols_scale=list(scaler.feature_names_in_),
                     expected_cols=cols_fit_scale,
                 ),
             )
         )
-
     if model_expected_cols is not None:
         steps.append(
             (

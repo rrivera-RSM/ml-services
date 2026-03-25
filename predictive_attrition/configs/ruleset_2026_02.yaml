@@ -1,0 +1,21 @@
+ruleset_id: ruleset_2026_02
+effective_from: 2026-02-01
+
+features:
+  id_col: "id"
+  
+  imputation:
+    survey_target_cols: ["b_survey_training", "b_survey_internal_comm"]
+    survey_imp_levels: [
+      ['society_name', 'office_name', 'category', 'gender'], 
+      ['society_name', 'office_name', 'category'],
+      ['society_name', 'office_name'], 
+      ['society_name']]
+    salary_target_cols: ["salary"]
+    salary_imp_levels: [
+      ['society_name', 'office_name', 'category'], 
+      ['society_name', 'category'], 
+      ['category']]
+
+  scaling:
+    enabled: True

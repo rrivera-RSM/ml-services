@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     OPENAPI_CLIENT_ID: str = ""
     APP_CLIENT_ID: str = ""
     TENANT_ID: str = ""
+    DATABASE_URL: str = "postgresql+asyncpg://admin_rsmapps:R%E2%82%ACsurr%E2%82%ACction_F%40st2026@172.31.255.31:5432/rsmapps"
+    SQL_ECHO: bool = False
 
     SCOPE_DESCRIPTION: str = "user_impersonation"
 

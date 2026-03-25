@@ -5,8 +5,9 @@ from fastapi.responses import RedirectResponse
 from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer
 from settings import Settings
 from typing import AsyncGenerator
-from main_simulations import predictive_attrition_router
+from api.v1.main_simulations import predictive_attrition_router
 import uvicorn
+
 settings = Settings()
 
 azure_scheme = SingleTenantAzureAuthorizationCodeBearer(
@@ -44,7 +45,9 @@ app = FastAPI(
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_origins=[
+            str(origin) for origin in settings.BACKEND_CORS_ORIGINS
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
