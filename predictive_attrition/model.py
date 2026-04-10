@@ -46,7 +46,7 @@ def classify_from_proba(
     df_probs: pd.DataFrame,
     *,
     proba_col: str = "probability",
-    threshold: float = 0.4036,
+    threshold: float = 0.3414,
     class_col: str = "stays",
 ) -> dict:
     """

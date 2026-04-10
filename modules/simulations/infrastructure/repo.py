@@ -2,21 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
-from sqlalchemy import select, or_
-from sqlalchemy.orm import aliased, Bundle
+from sqlalchemy import select, or_, case
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.models.core.employee import Employee
 from infrastructure.db.models.core.employee_history import EmployeeHistory
 from infrastructure.db.models.core.office import Office
 from infrastructure.db.models.people.evaluation import Evaluation
-from infrastructure.db.models.people.positive_impact import PositiveImpact
 from infrastructure.db.models.people.salary import Salary
 from infrastructure.db.models.core.society import Society
 from infrastructure.db.models.core.category import Category
 from infrastructure.db.models.people.flexible_compensation import (
     FlexibleCompensation,
 )
+from infrastructure.db.models.people.ona_active import OnaActive
 
 from infrastructure.db.models.people.answer import Answer
 from infrastructure.db.models.people.expenses import Expenses
@@ -77,18 +77,22 @@ class SimulationsRepo:
         business alignment across all simulation runs. It should only be overridden when a
         specific and validated use case requires a different reference date.
         """
-        as_of = datetime(2026, 8, 31, tzinfo=timezone.utc)
-        as_of_historical = as_of - timedelta(days=365)
+        as_of = datetime(
+            2026, 8, 31, tzinfo=timezone.utc, hour=21, minute=59, second=59
+        )
+        as_of_historical = datetime(
+            2025, 8, 30, tzinfo=timezone.utc, hour=21, minute=59, second=59
+        )
 
         # Correlated subqueries
         current_hst_id_sq = (
             select(EmployeeHistory.id)
             .where(
                 EmployeeHistory.employee_id == Employee.id,
-                EmployeeHistory.start_at <= as_of,
+                EmployeeHistory.start_at < as_of,
                 or_(
                     EmployeeHistory.end_at.is_(None),
-                    EmployeeHistory.end_at > as_of,
+                    EmployeeHistory.end_at >= as_of,
                 ),
             )
             .order_by(
@@ -122,17 +126,14 @@ class SimulationsRepo:
         )
 
         latest_positive_impact_id_sq = (
-            select(PositiveImpact.bol_positive_impact)
+            select(OnaActive.id)
             .where(
-                PositiveImpact.employee_id == Employee.id,
-                PositiveImpact.evaluation_at <= as_of,
-            )
-            .order_by(
-                PositiveImpact.evaluation_at.desc(), PositiveImpact.id.desc()
+                OnaActive.employee_id == Employee.id,
             )
             .limit(1)
             .scalar_subquery()
         )
+        # Positive impact is retrieved from ona_active.degree_centrality
 
         has_flexible_comp = (
             select(FlexibleCompensation.compensation)
@@ -169,16 +170,33 @@ class SimulationsRepo:
         office = aliased(Office)
         sal = aliased(Salary)
         eva = aliased(Evaluation)
-        pos = aliased(PositiveImpact)
+        pos = aliased(OnaActive)
 
         def latest_answer_sq(question_id, alias_hst):
+
+            adjusted_category_id = case(
+                (alias_hst.category_id == 15726720, 15726718),
+                else_=alias_hst.category_id,
+            )
+            # The change of category id for the following question is due
+            # to the fact the survey classifies both managers and directors
+            # under the same category, while in the employee history they are
+            # differentiated. This adjustment is necessary to correctly retrieve
+            # the survey answers for those employees whose historical category is "Director"
+            # (15726720) by mapping it to the corresponding category id used in the survey
+            # which is "Manager" (15726718).
+
+            # NOTE: remove this adjustment when the survey data is aligned with the employee history,
+            # hopefully when we can have an answer inyected directly from the survey system instead
+            #    of relying on the historical employee data for the survey answers.
+
             return (
                 select(Answer.value)
                 .where(
                     Answer.survey_question_id == question_id,
                     Answer.society_id == alias_hst.society_id,
                     Answer.office_id == alias_hst.office_id,
-                    Answer.category_id == alias_hst.category_id,
+                    Answer.category_id == adjusted_category_id,
                     Answer.gender_id == Employee.gender_id,
                 )
                 .order_by(Answer.aud_creation_at.desc(), Answer.id.desc())
@@ -191,10 +209,10 @@ class SimulationsRepo:
                 select(EmployeeHistory.id)
                 .where(
                     EmployeeHistory.employee_id == Employee.id,
-                    EmployeeHistory.start_at <= as_of_historical,
+                    EmployeeHistory.start_at < as_of_historical,
                     or_(
                         EmployeeHistory.end_at.is_(None),
-                        EmployeeHistory.end_at > as_of_historical,
+                        EmployeeHistory.end_at >= as_of_historical,
                     ),
                 )
                 .order_by(
@@ -205,6 +223,27 @@ class SimulationsRepo:
             )
 
         prev_hst = aliased(EmployeeHistory)
+
+        debug_stmt = (
+            select(
+                Employee.id,
+                prev_hst.category_id.label("raw_category_id"),
+                case(
+                    (prev_hst.category_id == 15726720, 15726718),
+                    else_=prev_hst.category_id,
+                ).label("adjusted_category_id"),
+            )
+            .select_from(Employee)
+            .outerjoin(
+                prev_hst,
+                prev_hst.id
+                == previous_year_hst_id_sq(as_of_historical=as_of_historical),
+            )
+            .where(Employee.id == employee_id)
+        )
+        debug_result = await self.db.execute(debug_stmt)
+        debug_row = debug_result.mappings().one_or_none()
+        print("DEBUG ROW:", debug_row)
 
         answer_cols = [
             latest_answer_sq(q, prev_hst).label(f"answer_q{q}")
@@ -236,7 +275,7 @@ class SimulationsRepo:
                 sal.salary.label("current_salary"),
                 sal.bonus.label("current_bonus"),
                 eva.final_score.label("final_score"),
-                pos.bol_positive_impact.label("positive_impact"),
+                pos.degree_centrality.label("positive_impact"),
                 last_expenses_in_food_sq.label("expenses_food"),
                 has_flexible_comp.label("flexible_compensation"),
                 *answer_cols,
@@ -293,8 +332,15 @@ class SimulationsRepo:
                 else db_row["current_bonus"]
             )
             or 0.0,
-            "food": db_row["expenses_food"] or 0.0,
-            "is_first_year": int(antiguedad is not None and antiguedad < 1),
-            "bol_positive_impact": db_row["positive_impact"] or 0.0,
+            "food": db_row["expenses_food"] / 100 or 0.0,
+            "is_first_year": int(antiguedad is not None and antiguedad <= 1),
+            "bol_positive_impact": (
+                1
+                if db_row["positive_impact"] is not None
+                and db_row["positive_impact"] >= 10
+                else 0
+            ),
             **survey_answers,
         }
+
+

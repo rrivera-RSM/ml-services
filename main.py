@@ -77,13 +77,13 @@ async def root():
         - This endpoint is excluded from the OpenAPI schema
         to avoid duplication in the API documentation.
         - The hardcoded localhost URL assumes the application is running
-        on the local machine at port 8000. Consider using environment
+        on the local machine at port 8001. Consider using environment
         variables or configuration for production deployments.
         - HTTP GET method is used as this is a read-only redirect operation.
 
     Example:
         Accessing GET / will automatically redirect the browser to
-        http://localhost:8000/docs
+        http://localhost:8001/docs
     """
     return RedirectResponse(url="http://localhost:8001/docs")
 
