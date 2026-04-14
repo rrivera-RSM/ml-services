@@ -332,7 +332,7 @@ class SimulationsRepo:
                 else db_row["current_bonus"]
             )
             or 0.0,
-            "food": db_row["expenses_food"] / 100 or 0.0,
+            "food": db_row["expenses_food"] or 0.0,
             "is_first_year": int(antiguedad is not None and antiguedad <= 1),
             "bol_positive_impact": (
                 1
