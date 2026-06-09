@@ -342,5 +342,3 @@ class SimulationsRepo:
             ),
             **survey_answers,
         }
-
-

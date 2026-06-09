@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 from fastapi import FastAPI, Security, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -85,7 +86,7 @@ async def root():
         Accessing GET / will automatically redirect the browser to
         http://localhost:8001/docs
     """
-    return RedirectResponse(url="http://localhost:8001/docs")
+    return RedirectResponse(url="/docs")
 
 
 app.include_router(protected)
@@ -96,4 +97,12 @@ app.include_router(
 )
 app.include_router(public)
 
-uvicorn.run(app, host="localhost", port=8001, log_level="debug", reload=False)
+
+if __name__ == "__main__":
+    uvicorn.run(
+        app,
+        host=os.getenv("HOST", "localhost"),
+        port=int(os.getenv("PORT", "8001")),
+        log_level=os.getenv("LOG_LEVEL", "debug"),
+        reload=False,
+    )
