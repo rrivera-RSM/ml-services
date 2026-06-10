@@ -1,0 +1,14 @@
+.git
+.venv
+.pytest_cache
+.vscode
+__pycache__
+*.pyc
+.env
+.black
+.flake8
+tests
+results
+*.xlsx
+Dockerfile
+.dockerignore
