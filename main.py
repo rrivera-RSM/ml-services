@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Security, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
@@ -76,16 +77,14 @@ async def root():
     Note:
         - This endpoint is excluded from the OpenAPI schema
         to avoid duplication in the API documentation.
-        - The hardcoded localhost URL assumes the application is running
-        on the local machine at port 8001. Consider using environment
-        variables or configuration for production deployments.
+        - Uses a relative redirect so it works behind Docker port mappings
+        and reverse proxies.
         - HTTP GET method is used as this is a read-only redirect operation.
 
     Example:
-        Accessing GET / will automatically redirect the browser to
-        http://localhost:8001/docs
+        Accessing GET / will automatically redirect the browser to /docs.
     """
-    return RedirectResponse(url="http://localhost:8001/docs")
+    return RedirectResponse(url="/docs")
 
 
 app.include_router(protected)
@@ -96,4 +95,11 @@ app.include_router(
 )
 app.include_router(public)
 
-uvicorn.run(app, host="localhost", port=8001, log_level="debug", reload=False)
+if __name__ == "__main__":
+    uvicorn.run(
+        app,
+        host=os.getenv("HOST", "localhost"),
+        port=int(os.getenv("PORT", "8001")),
+        log_level="debug",
+        reload=False,
+    )
