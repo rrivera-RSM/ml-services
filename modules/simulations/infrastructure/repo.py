@@ -21,10 +21,9 @@ from infrastructure.db.models.people.ona_active import OnaActive
 from infrastructure.db.models.people.answer import Answer
 from infrastructure.db.models.people.expenses import Expenses
 
-
 # Constants
 _GENDER_MAPPING = {1: "Masculino", 2: "Femenino"}
-_QUESTION_IDS = [381, 382, 383, 398, 399, 400]
+_QUESTION_IDS = [606, 607, 608, 623, 624, 625]
 _SURVEY_FIELD_NAMES = [
     "survey_training_technical",
     "survey_training_sofT_skills",
@@ -342,5 +341,3 @@ class SimulationsRepo:
             ),
             **survey_answers,
         }
-
-
