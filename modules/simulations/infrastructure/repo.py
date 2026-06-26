@@ -327,7 +327,7 @@ class SimulationsRepo:
             "salary_increase": salary_increment,
             "bonus": (
                 new_bonus
-                if new_bonus is not None and new_bonus > 4000
+                if new_bonus is not None and new_bonus > 5000
                 else db_row["current_bonus"]
             )
             or 0.0,
